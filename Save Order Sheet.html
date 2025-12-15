@@ -1,0 +1,394 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Order Sheet Generator — Postcode Smart Save</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+:root{
+  --accent:#1f6feb;
+  --highlight:#fff2a8;
+}
+
+/* ===== SCREEN ===== */
+body{
+  font-family:Arial,Helvetica,sans-serif;
+  margin:24px;
+  background:#f4f6f8;
+  display:flex;
+  justify-content:center;
+}
+
+.container{
+  max-width:1250px;
+  width:100%;
+  display:grid;
+  grid-template-columns:380px 1fr;
+  gap:20px;
+}
+
+.controls{
+  background:#fafafa;
+  padding:18px;
+  border-radius:10px;
+}
+
+.controls label{font-size:13px;margin-top:8px;display:block;}
+.controls input,.controls textarea{
+  width:100%;
+  padding:8px;
+  border-radius:6px;
+  border:1px solid #ccc;
+}
+.controls textarea{min-height:80px;}
+
+.controls .btn-row{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-top:10px;
+}
+
+.controls button{
+  padding:8px 12px;
+  background:var(--accent);
+  color:#fff;
+  border:none;
+  border-radius:6px;
+  cursor:pointer;
+}
+.controls button.secondary{
+  background:#fff;
+  color:#000;
+  border:1px solid #ccc;
+}
+
+.preview-area{display:flex;flex-direction:column;gap:20px;}
+
+/* ===== A4 ===== */
+.a4{
+  width:210mm;
+  height:297mm;
+  background:#fff;
+  padding:15mm;
+  box-sizing:border-box;
+  position:relative;
+  page-break-after:always;
+}
+
+.company{
+  position:absolute;
+  top:10mm;
+  right:12mm;
+  font-weight:700;
+}
+
+/* ===== TOOLBAR ===== */
+.page-toolbar{
+  position:absolute;
+  top:8mm;
+  left:12mm;
+  display:flex;
+  gap:6px;
+}
+.page-toolbar button{
+  padding:6px 10px;
+  font-size:13px;
+  border-radius:6px;
+  border:1px solid #ccc;
+  background:#fff;
+  cursor:pointer;
+}
+.page-toolbar button.primary{
+  background:var(--accent);
+  color:#fff;
+  border:none;
+}
+
+/* ===== 4-UP ===== */
+.four-grid{
+  margin-top:22mm;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  grid-template-rows:1fr 1fr;
+  gap:10mm;
+  height:240mm;
+}
+
+.card{
+  border:1px solid #ddd;
+  border-radius:6px;
+  padding:8mm;
+  font-size:12px;
+  break-inside:avoid;
+}
+
+.photos img{
+  width:90px;
+  height:80px;
+  object-fit:cover;
+  margin-right:6px;
+  border-radius:6px;
+}
+
+/* ===== SINGLE ===== */
+#a4fullpage .photos img{
+  width:280px;
+  height:220px;
+}
+
+/* ===== TEXT ===== */
+.fields{margin-bottom:6px;}
+.fields strong{display:inline-block;min-width:90px;}
+.address-block{margin-bottom:6px;}
+
+.postcode-highlight{
+  background:var(--highlight);
+  padding:2px 5px;
+  border-radius:3px;
+  font-weight:700;
+  -webkit-print-color-adjust:exact;
+  print-color-adjust:exact;
+}
+
+/* ===== PRINT / PDF ===== */
+@page{
+  size:A4;
+  margin:0;
+}
+
+@media print{
+  body{margin:0;background:#fff;}
+  .controls,.page-toolbar,.no-print,.no-pdf{display:none!important;}
+  .a4{margin:0;box-shadow:none;}
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<!-- CONTROLS -->
+<aside class="controls">
+<h3>Order Sheet Input</h3>
+
+<label>Company</label>
+<input id="company">
+
+<label>Address</label>
+<textarea id="address"></textarea>
+
+<label>Phone</label>
+<input id="phone">
+
+<label>Order ID</label>
+<input id="orderid">
+
+<label>Bed Details</label>
+<textarea id="beddetails"></textarea>
+
+<label>Note</label>
+<textarea id="note"></textarea>
+
+<label>Photo URLs</label>
+<textarea id="photos"></textarea>
+
+<div class="btn-row">
+  <button onclick="updateAll()">Update Preview</button>
+  <button class="secondary" onclick="clearForm()">Clear</button>
+  <button onclick="generatePDF4Up()">Generate PDF (4-up)</button>
+  <button onclick="generatePDFSingle()">Generate PDF (single)</button>
+  <button onclick="generatePDF()">Generate PDF (both)</button>
+</div>
+
+<div class="btn-row">
+  <button onclick="saveOrder()">Save Order</button>
+</div>
+
+<label style="margin-top:12px">Search Saved (Postcode / Order ID)</label>
+<input id="search">
+<button class="secondary" onclick="searchOrder()">Search</button>
+</aside>
+
+<!-- PREVIEW -->
+<main class="preview-area">
+
+<!-- 4 UP -->
+<div class="a4" id="a4sheet">
+<div class="page-toolbar no-print no-pdf">
+  <button class="primary" onclick="printThisPage('a4sheet')">Print (this page)</button>
+  <button onclick="printBothPages()">Print (both)</button>
+  <button onclick="generatePDF4Up()">PDF (this page)</button>
+  <button onclick="generatePDF()">PDF (both)</button>
+</div>
+
+<div class="company" id="company_label"></div>
+
+<div class="four-grid">
+  <div class="card" id="sec1"></div>
+  <div class="card" id="sec2"></div>
+  <div class="card" id="sec3"></div>
+  <div class="card" id="sec4"></div>
+</div>
+</div>
+
+<!-- SINGLE -->
+<div class="a4" id="a4fullpage">
+<div class="page-toolbar no-print no-pdf">
+  <button class="primary" onclick="printThisPage('a4fullpage')">Print (this page)</button>
+  <button onclick="printBothPages()">Print (both)</button>
+  <button onclick="generatePDFSingle()">PDF (this page)</button>
+  <button onclick="generatePDF()">PDF (both)</button>
+</div>
+
+<div class="company" id="company_label_full"></div>
+<div id="fullpage_top"></div>
+
+<div style="position:absolute;bottom:20mm;font-weight:700">
+Signature:<br><br><br>
+HB.    FB.     SR.    SL.    MATT.     MTLFR.     BOX.     BAR.    BASE.    BASE.    BLNKT BOX.
+</div>
+</div>
+
+</main>
+</div>
+
+<script>
+const postcodeRegex=/\b([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2})\b/i;
+
+function extractPostcode(addr){
+  const m=addr.match(postcodeRegex);
+  return m?m[0].toUpperCase():"";
+}
+
+function formatAddress(addr){
+  return addr.split("\n").map(l=>{
+    const m=l.match(postcodeRegex);
+    return m?l.replace(m[0],`<span class="postcode-highlight">${m[0]}</span>`):l;
+  }).join("<br>");
+}
+
+function formatLines(t){
+  return t.split("\n").flatMap(l=>l.split(","))
+    .map(l=>l.trim()).filter(Boolean).join("<br>");
+}
+
+function buildHTML(){
+  let html=`<div class="fields"><strong>${company.value}</strong></div>`;
+
+  if(address.value.trim()){
+    html+=`<div class="fields"><strong>Address:</strong></div>`;
+    html+=`<div class="address-block">${formatAddress(address.value)}</div>`;
+  }
+
+  if(phone.value) html+=`<div class="fields"><strong>Phone:</strong> ${phone.value}</div>`;
+  if(orderid.value) html+=`<div class="fields"><strong>Order ID:</strong> ${orderid.value}</div>`;
+
+  const imgs=photos.value.split("\n").filter(Boolean)
+    .map(u=>`<img src="${u}" crossorigin="anonymous">`).join("");
+  if(imgs) html+=`<div class="photos">${imgs}</div>`;
+
+  if(beddetails.value) html+=`<div class="fields"><strong>Bed Details:</strong><br>${formatLines(beddetails.value)}</div>`;
+  if(note.value) html+=`<div class="fields"><strong>Note:</strong><br>${formatLines(note.value)}</div>`;
+
+  return html;
+}
+
+function updateAll(){
+  company_label.innerText=company.value;
+  company_label_full.innerText=company.value;
+  ["sec1","sec2","sec3","sec4"].forEach(id=>document.getElementById(id).innerHTML=buildHTML());
+  fullpage_top.innerHTML=buildHTML();
+}
+
+function clearForm(){
+  ["company","address","phone","orderid","beddetails","note","photos","search"]
+    .forEach(id=>document.getElementById(id).value="");
+  updateAll();
+}
+
+/* ===== SAVE (UPSERT BY POSTCODE) ===== */
+function saveOrder(){
+  const orders=JSON.parse(localStorage.getItem("orders")||"[]");
+  const pc=extractPostcode(address.value);
+
+  const data={
+    company:company.value,
+    address:address.value,
+    phone:phone.value,
+    orderid:orderid.value,
+    beddetails:beddetails.value,
+    note:note.value,
+    photos:photos.value,
+    postcode:pc,
+    updatedAt:new Date().toISOString()
+  };
+
+  const idx=orders.findIndex(o=>o.postcode && o.postcode===pc);
+
+  if(idx>-1){
+    orders[idx]=data;
+    alert("Order updated for postcode "+pc);
+  }else{
+    orders.push(data);
+    alert("Order saved for postcode "+pc);
+  }
+
+  localStorage.setItem("orders",JSON.stringify(orders));
+}
+
+function searchOrder(){
+  const q=search.value.toLowerCase();
+  const orders=JSON.parse(localStorage.getItem("orders")||"[]");
+  const o=orders.find(x=>
+    (x.postcode||"").toLowerCase().includes(q) ||
+    (x.orderid||"").toLowerCase().includes(q)
+  );
+  if(!o){alert("No order found");return;}
+  Object.keys(o).forEach(k=>{
+    if(document.getElementById(k)) document.getElementById(k).value=o[k];
+  });
+  updateAll();
+}
+
+/* ===== PRINT ===== */
+function printThisPage(id){printElements([id]);}
+function printBothPages(){printElements(["a4sheet","a4fullpage"]);}
+
+function printElements(ids){
+  const w=window.open("","","width=800,height=600");
+  w.document.write("<html><head>"+document.head.innerHTML+"</head><body>");
+  ids.forEach(id=>w.document.write(document.getElementById(id).outerHTML));
+  w.document.write("</body></html>");
+  w.document.close();
+  w.print();
+}
+
+/* ===== PDF ===== */
+async function generatePDFPages(ids,suffix){
+  const {jsPDF}=window.jspdf;
+  const pdf=new jsPDF("p","mm","a4");
+
+  for(let i=0;i<ids.length;i++){
+    const canvas=await html2canvas(document.getElementById(ids[i]),{
+      scale:2,
+      useCORS:true
+    });
+    const img=canvas.toDataURL("image/png");
+    if(i>0) pdf.addPage();
+    pdf.addImage(img,"PNG",0,0,210,297);
+  }
+  pdf.save("OrderSheet"+suffix+".pdf");
+}
+
+function generatePDF4Up(){generatePDFPages(["a4sheet"],"_4up");}
+function generatePDFSingle(){generatePDFPages(["a4fullpage"],"_single");}
+function generatePDF(){generatePDFPages(["a4sheet","a4fullpage"],"");}
+
+updateAll();
+</script>
+</body>
+</html>
